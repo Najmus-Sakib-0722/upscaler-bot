@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: telegram-upscaler-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false          # Set manually in Render dashboard
+      - key: KAGGLE_USERNAME
+        sync: false
+      - key: KAGGLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: KAGGLE_KERNEL_SLUG
+        value: image-upscaler-worker
+      - key: KAGGLE_CONFIG_DATASET
+        value: run-config
+      - key: RENDER_EXTERNAL_URL
+        sync: false          # e.g. https://your-app.onrender.com
+    healthCheckPath: /

@@ -1,0 +1,4 @@
+flask==3.0.3
+requests==2.32.3
+kaggle==1.6.17
+gunicorn==22.0.0
