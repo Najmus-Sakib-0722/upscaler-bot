@@ -2,33 +2,32 @@ import os
 import json
 import time
 import logging
+import tempfile
 import requests
-from kaggle.api.kaggle_api_extended import KaggleApiExtended
+
+# Kaggle API ইমপোর্ট করার নিরাপদ পদ্ধতি
+try:
+    from kaggle.api.kaggle_api_extended import KaggleApiExtended
+except (ImportError, AttributeError):
+    try:
+        from kaggle import KaggleApi as KaggleApiExtended
+    except ImportError:
+        raise ImportError("Kaggle library not found. Please check requirements.txt")
 
 logger = logging.getLogger(__name__)
 
 KAGGLE_USERNAME = os.environ["KAGGLE_USERNAME"]
 KAGGLE_KERNEL_SLUG = os.environ.get("KAGGLE_KERNEL_SLUG", "image-upscaler-worker")
 
-
-def get_kaggle_api() -> KaggleApiExtended:
+def get_kaggle_api():
     """Authenticate and return Kaggle API client."""
     api = KaggleApiExtended()
     api.authenticate()
     return api
 
-
-def trigger_kaggle_job(chat_id: str, file_id: str, status_message_id: str):
-    """
-    Push a new Kaggle kernel run with environment variables passed as
-    kernel metadata so the notebook can read them.
-
-    Strategy: We update the kernel source with the new env vars baked in
-    as a tiny JSON config cell, then trigger a new run.
-    """
+def trigger_kaggle_job(chat_id, file_id, status_message_id):
     api = get_kaggle_api()
 
-    # Build the config that the Kaggle notebook will read
     run_config = {
         "GDRIVE_FILE_ID": file_id,
         "TELEGRAM_CHAT_ID": chat_id,
@@ -37,32 +36,13 @@ def trigger_kaggle_job(chat_id: str, file_id: str, status_message_id: str):
         "GEMINI_API_KEY": os.environ["GEMINI_API_KEY"],
     }
 
-    # Trigger kernel via Kaggle API (kernel push triggers a new run)
-    # We use the kernels push endpoint with updated dataset sources
-    logger.info(f"Triggering Kaggle kernel for chat_id={chat_id}, file_id={file_id}")
-
-    # Write a tiny trigger dataset to Kaggle datasets that the notebook polls
-    # This is the most reliable free-tier method
-    _push_config_as_dataset(api, run_config)
-
-    logger.info("Kaggle job triggered successfully")
-
-
-def _push_config_as_dataset(api: KaggleApiExtended, config: dict):
-    """
-    Write run config to a Kaggle dataset so the notebook can read it.
-    The notebook polls this dataset on startup.
-    """
-    import tempfile
-    import zipfile
-
     dataset_slug = os.environ.get("KAGGLE_CONFIG_DATASET", "run-config")
     full_slug = f"{KAGGLE_USERNAME}/{dataset_slug}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = os.path.join(tmpdir, "run_config.json")
         with open(config_path, "w") as f:
-            json.dump(config, f)
+            json.dump(run_config, f)
 
         metadata = {
             "title": dataset_slug,
@@ -83,7 +63,7 @@ def _push_config_as_dataset(api: KaggleApiExtended, config: dict):
             )
             logger.info(f"Config dataset updated: {full_slug}")
         except Exception as e:
-            logger.warning(f"Dataset version error (may be first run): {e}")
+            logger.warning(f"Dataset version error: {e}")
             try:
                 api.dataset_create_new(
                     folder=tmpdir,
@@ -91,18 +71,14 @@ def _push_config_as_dataset(api: KaggleApiExtended, config: dict):
                     quiet=True,
                     convert_to_csv=False,
                 )
-                logger.info(f"Config dataset created: {full_slug}")
             except Exception as e2:
-                raise RuntimeError(f"Could not push config dataset: {e2}") from e2
+                raise RuntimeError(f"Could not push config dataset: {e2}")
 
-    # Now trigger the kernel run
-    _trigger_kernel_run(api)
-
-
-def _trigger_kernel_run(api: KaggleApiExtended):
-    """Trigger a new run of the Kaggle kernel."""
+    # Trigger kernel run
     try:
-        response = api.kernel_push(KAGGLE_USERNAME, KAGGLE_KERNEL_SLUG)
-        logger.info(f"Kernel run triggered: {response}")
+        api.kernel_push_by_id(f"{KAGGLE_USERNAME}/{KAGGLE_KERNEL_SLUG}")
+        logger.info("Kernel run triggered successfully.")
     except Exception as e:
-        raise RuntimeError(f"Failed to trigger kernel run: {e}") from e
+        # Fallback to general push
+        logger.error(f"Kernel trigger error: {e}")
+        raise e
