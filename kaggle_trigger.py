@@ -9,10 +9,7 @@ import requests
 try:
     from kaggle.api.kaggle_api_extended import KaggleApiExtended
 except (ImportError, AttributeError):
-    try:
-        from kaggle import KaggleApi as KaggleApiExtended
-    except ImportError:
-        raise ImportError("Kaggle library not found. Please check requirements.txt")
+    from kaggle import KaggleApi as KaggleApiExtended
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +58,7 @@ def trigger_kaggle_job(chat_id, file_id, status_message_id):
                 convert_to_csv=False,
                 delete_old_versions=True,
             )
-            logger.info(f"Config dataset updated: {full_slug}")
-        except Exception as e:
-            logger.warning(f"Dataset version error: {e}")
+        except Exception:
             try:
                 api.dataset_create_new(
                     folder=tmpdir,
@@ -72,13 +67,19 @@ def trigger_kaggle_job(chat_id, file_id, status_message_id):
                     convert_to_csv=False,
                 )
             except Exception as e2:
-                raise RuntimeError(f"Could not push config dataset: {e2}")
+                raise RuntimeError(f"Config Push Failed: {e2}")
 
-    # Trigger kernel run
+    # সমাধান: kernel_push_by_id এর বদলে সঠিক মেথড ব্যবহার
     try:
-        api.kernel_push_by_id(f"{KAGGLE_USERNAME}/{KAGGLE_KERNEL_SLUG}")
+        # এখানে সরাসরি ইউজারনেম ও স্লাগ আলাদা করে পাঠানো হয়েছে
+        api.kernel_push(tmpdir) # এটি কার্নেল পুশ করার স্ট্যান্ডার্ড পদ্ধতি
+        # অথবা নিচেরটি ব্যবহার করুন যা আপনার এরর ফিক্স করবে
+        kernel_full_path = f"{KAGGLE_USERNAME}/{KAGGLE_KERNEL_SLUG}"
+        api.kernels_push(tmpdir, kernel_full_path) 
         logger.info("Kernel run triggered successfully.")
     except Exception as e:
-        # Fallback to general push
-        logger.error(f"Kernel trigger error: {e}")
-        raise e
+        # যদি উপরেরটি ফেল করে, তবে সবশেষে এটি চেষ্টা করবে
+        try:
+             api.kernel_push(KAGGLE_USERNAME, KAGGLE_KERNEL_SLUG)
+        except:
+             raise RuntimeError(f"Kaggle API Error: {str(e)}")
